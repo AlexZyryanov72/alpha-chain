@@ -1,3 +1,4 @@
+from wallet import Wallet
 import hashlib
 import json
 import os
@@ -227,26 +228,8 @@ class Blockchain:
 # Instantiate the Node
 app = Flask(__name__)
 
-from py_ecc import secp256k1
-from _pysha3 import keccak_256
-
-def privToPub(priv):
-    int()
-    priv = int(priv, 16).to_bytes(64, 'big')
-    res = secp256k1.privtopub(priv)
-    a = res[0].to_bytes(32, 'big')
-    b = res[1].to_bytes(32, 'big')
-    pub = int.from_bytes(a + b, 'big')
-    return '0' * (128-len(hex(pub)[2:])) + hex(pub)[2:]
-    # Generate a globally unique address for this node
-
-def pubToAddr(pub):
-    return keccak_256(bytes(pub, 'utf-8')).hexdigest()[24:]
-
-private_key = os.urandom(64).hex()
-public_key = privToPub(private_key)
-node_identifier = pubToAddr(public_key)
-
+wallet = Wallet()
+node_identifier = wallet.address
 
 
 @app.route('/nodes/getnodes', methods=['GET'])
@@ -347,6 +330,7 @@ if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('-p', '--port', default=7003, type=int, help='port to listen on')
     parser.add_argument('-m', '--miner', help='start miner', action='store_const', const=True, default=False)
+    parser.add_argument('command' '--miner', help='start miner', action='store_const', const=True, default=False)
     args = parser.parse_args()
     port = args.port
 
