@@ -1,51 +1,50 @@
 import time
+import sys
 from wallets import Wallets
+import requests
+from blockchain import Blockchain
 
 
 class Miner:
-    def __init__(self, pipe_miner_to_chain, blockchain):
-        self.pipe_miner_to_chain = pipe_miner_to_chain
-        self.blockchain = blockchain
-
+    def __init__(self, pipe_miner, connect_address_node):
+        self.pipe_miner = pipe_miner
+        self.connect_address_node = connect_address_node
+        self.blockchain = Blockchain()
 
     def start(self):
         while True:
-            wallet_address = Wallets().current_address
-            # We must receive a reward for finding the proof.
-            # The sender is "0" to signify that this node has mined a new coin.
-            try:
-                amount_block = self.blockchain.genesis_amount_miner / (2**((self.blockchain.chain[-1]['index'] + 1) //
-                                                                           self.blockchain.block_cut_award))
-            except:
-                amount_block = 100
+            # read from main process command
+            if self.pipe_miner.poll():
+                command = self.pipe_miner.recv()
+                if command == 'exit':
+                    sys.exit(0)
 
-            self.blockchain.new_transaction(
-                sender="0",
-                recipient= wallet_address,
-                amount=amount_block,
-            )
+            # send request for new job
+            while True:
+                try:
+                    block = requests.post(f'http://{self.connect_address_node}/nodes/get_new_job', verify=False).json()
+                    break
+                except:
+                    print('Not connect node mining for new job')
 
-            # Forge the new Block by adding it to the chain
-            block = self.new_block()
+            block['recipient'] = Wallets().current_address
+            block['proof'] = self.proof_of_work(block)
 
-            response = {
-                'message': "New Block Forged",
-                'time': time.ctime(block['timestamp']),
-                'index': block['index'],
-                'proof': block['proof'],
-                'previous_hash': block['previous_hash'],
-                'transactions': block['transactions']
-            }
-            print(response)
-            self.pipe_miner_to_chain.send(block)
+            # send request proof block
+            while True:
+                try:
+                    block = requests.post(f'http://{self.connect_address_node}/nodes/set_proof_block',
+                                          json=block, verify=False).json()
+                    break
+                except:
+                    print('Not connect node mining for proof block')
+
 
     def proof_of_work(self, block):
         """
         Simple Proof of Work Algorithm:
-
          - Find a number p' such that hash(pp') contains leading 4 zeroes
          - Where p is the previous proof, and p' is the new proof
-
         :param block: <dict> last Block
         :return: <int>
         """
@@ -53,38 +52,5 @@ class Miner:
         proof = 0
         while self.blockchain.valid_proof(block) is False:
             proof += 1
-            block['proof'] = proof
 
-
-    def new_block(self):
-        """
-        Create a new Block in the Blockchain
-        :return: New Block
-        """
-
-        if self.blockchain.chain:
-            index = self.blockchain.chain[-1]['index'] + 1
-            previous_hash = self.blockchain.hash(self.blockchain.chain[-1])
-        else:
-            # Геннезис блок начальные данные
-            index = 0
-            previous_hash = '0'
-
-        if index % self.blockchain.block_change_difficuly == 0 and index !=0:
-            self.blockchain.change_difficulty()
-        block = {
-            'index': index,
-            'timestamp': time.time(),
-            'previous_hash': previous_hash,
-            'difficulty': self.blockchain.difficulty,
-            'proof': 0,
-            'transactions': self.blockchain.current_transactions,
-
-        }
-
-        self.proof_of_work(block)
-        # Reset the current list of transactions
-        self.blockchain.current_transactions = []
-
-        self.blockchain.chain.append(block)
-        return block
+        return proof

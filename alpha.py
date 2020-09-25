@@ -1,29 +1,46 @@
 import sys
 from multiprocessing import Process, Pipe
 from node import FullNode
-
+from argparse import ArgumentParser
 from miner import *
 from blockchain import Blockchain
+import signal
 
 
-def start_node(port):
-    node = FullNode(port)
+def start_node(pipe_node, port):
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    node = FullNode(pipe_node, port)
     node.start()
 
 
-def start_mine(pipe_miner_to_node, blockchain):
-    miner = Miner(pipe_miner_to_node, blockchain)
+def start_mine(pipe_miner, blockchain):
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    miner = Miner(pipe_miner, blockchain)
     miner.start()
+
+def exit_program():
+    if args.miner:
+        pipe_miner[0].send('exit')
+
+    # send exit and wait while node end job
+    pipe_node[0].send('exit')
+    if pipe_node[0].recv() == 'exit_ok':
+        process_node.terminate()
+    sys.exit(0)
+
+def handler(signum, frame):
+    exit_program()
 
 
 if __name__ == '__main__':
-    from argparse import ArgumentParser
+    signal.signal(signal.SIGINT, handler)
 
     parser = ArgumentParser()
     # parser.add_argument('command', help='commands', choices=['main', 'dev', 'scissors'], nargs='?', default="main")
     parser.add_argument('-p', '--port', default=7777, type=int, help='port to listen on')
     parser.add_argument('-m', '--miner', help='start miner', action='store_const', const=True, default=False)
-    parser.add_argument('-nc', '--console', help='input commands in command line', action='store_const',
+    parser.add_argument('-mn', '--miner_node', default="127.0.0.1", type=str, help='link miner with node')
+    parser.add_argument('-c', '--console', help='input commands in command line', action='store_const',
                         const=True, default=False)
 
     args = parser.parse_args()
@@ -34,28 +51,27 @@ if __name__ == '__main__':
         print("Список кошельков пуст. Создается новый кошелек")
         wallets.add_wallet()
 
-    pipe_miner_to_node, pipe_node_to_miner = Pipe()
+    # for send data in process
+    pipe_miner = Pipe()
+    pipe_node = Pipe()
 
     # Instantiate the Blockchain
     blockchain = Blockchain()
 
     # Запускаем ноду
-    process_node = Process(target=start_node, args=(port,))
+    process_node = Process(target=start_node, args=(pipe_node[1], port,))
     process_node.start()
 
     # Запускаем майнинг
     if args.miner:
-        current_address = wallets.current_address
-        process_miner = Process(target=start_mine, args=(pipe_miner_to_node, blockchain,))
+        process_miner = Process(target=start_mine, args=(pipe_miner[1], f'{args.miner_node}:{args.port}',))
         process_miner.start()
 
     if args.console:
         while True:
             command = input('> ').lower().split(" ")
             if "exit" in command:
-                if args.miner:
-                    process_miner.terminate()
-                sys.exit(0)
+                exit_program()
             elif "new_wallet" in command:
                 wallets.add_wallet()
             elif "list_wallet" in command:
@@ -66,7 +82,6 @@ if __name__ == '__main__':
                 addr = input('Input address wallet: ')
                 if wallets.get_wallet(addr):
                     wallets.current_address = addr
-                    current_address = addr
                     print('OK')
                 else:
                     print("Кошелек с таким адресом не зарегестрирован")

@@ -1,22 +1,19 @@
 from flask import Flask, jsonify, request
 from blockchain import Blockchain
 import time
+import sys
 import requests
 from threading import Thread
 
 
-
 class FullNode:
-    def __init__(self, port):
+    def __init__(self, pipe_node, port):
         self.DEFAULT_NODES = ("127.0.0.1:7777", "127.0.0.1:7778",)
+        self.pipe_node = pipe_node
         self.port = port
         self.blockchain = Blockchain()
         self.nodes = set()
-        self.my_ip = self.DEFAULT_NODES[0]
-
-        self.load_all_nodes()
-        self.register_node()
-        print(self.nodes)
+        self.my_ip = 0
 
     def load_all_nodes(self):
         if not self.nodes:
@@ -26,22 +23,30 @@ class FullNode:
             try:
                 response = requests.get(f'http://{node}/nodes/getnodes', verify=False)
                 self.nodes.update(set(response.json()))
-            except:
-                pass
+            except Exception:
+                pass # Node not connect
 
     def register_node(self):
         for node in self.nodes:
             try:
-                if self.my_ip == self.DEFAULT_NODES[0]:
+                if self.my_ip == 0:
                     self.my_ip = requests.get(f'http://{node}/nodes/getmyip', verify=False).json()
                     self.my_ip = f'{self.my_ip}:{self.port}'
-                response = requests.post(f'http://{node}/nodes/setmyip', json={"my_ip": self.my_ip}, verify=False)
+                response = requests.post(f'http://{node}/nodes/register_node', json={"node_ip": self.my_ip}, verify=False)
                 self.nodes.update(set(response.json()))
-            except:
-                pass
+            except Exception:
+                pass #Node not connect
 
-
-
+    def update_blockchain(self):
+        for node in self.nodes:
+            try:
+                len_chain = requests.get(f'http://{node}/nodes/get_len_chain', verify=False).json()
+                if self.blockchain.len_chain < len_chain:
+                    new_chain = requests.get(f'http://{node}/nodes/get_chain', verify=False).json()
+                    if self.blockchain.valid_chain(new_chain):
+                        self.blockchain.chain = new_chain
+            except Exception:
+                pass #Node not connect or incorrect data
 
     def start(self):
         # Instantiate the Node
@@ -55,10 +60,9 @@ class FullNode:
         def get_myip():
             return jsonify(request.remote_addr), 200
 
-        @app.route('/nodes/setmyip', methods=['POST'])
-        def set_myip():
-            self.nodes.add(request.json["my_ip"])
-            print(self.nodes)
+        @app.route('/nodes/register_node', methods=['POST'])
+        def register_node():
+            self.nodes.add(request.json["node_ip"])
             return jsonify([]), 200
 
         @app.route('/transactions/new', methods=['POST'])
@@ -79,44 +83,48 @@ class FullNode:
             response = {'message': f'Transaction will be added to Block {index}'}
             return jsonify(response), 201
 
-        @app.route('/get_len_chain', methods=['GET'])
+        @app.route('/nodes/get_len_chain', methods=['GET'])
         def get_len_chain():
-            return self.blockchain.chain[-1]['index'] + 1
+            return jsonify(self.blockchain.len_chain), 200
 
-        @app.route('/chain', methods=['GET'])
-        def full_chain():
-            response = {
-                'chain': self.blockchain.chain,
-                'length': len(self.blockchain.chain),
-            }
-            return jsonify(response), 200
+        @app.route('/nodes/get_chain', methods=['GET'])
+        def get_chain():
+            return jsonify(self.blockchain.chain), 200
 
-        @app.route('/nodes/resolve', methods=['GET'])
-        def consensus():
-            replaced = self.blockchain.resolve_conflicts()
+        @app.route('/nodes/get_new_job', methods=['POST'])
+        def get_new_job():
+            return jsonify(self.blockchain.new_block()), 200
 
-            if replaced:
-                response = {
-                    'message': 'Our chain was replaced',
-                    'new_chain': self.blockchain.chain
-                }
-            else:
-                response = {
-                    'message': 'Our chain is authoritative',
-                    'chain': self.blockchain.chain
-                }
+        @app.route('/nodes/set_proof_block', methods=['POST'])
+        def set_proof_block():
+            self.blockchain.chain.append(request.get_json())
+            return jsonify([]), 200
 
-            return jsonify(response), 200
 
         def job_node():
+            update_node_time = 0
             while True:
-                print(44444444444)
-                try:
-                    requests.get(f'http://{self.my_ip}/nodes/getmyip', verify=False).json()
-                    print(self.my_ip)
-                except:
-                    pass
-                time.sleep(5)
+                # read from main process command
+                if self.pipe_node.poll():
+                    command = self.pipe_node.recv()
+                    if command == 'exit':
+                        self.pipe_node.send('exit_ok')
+                        sys.exit(0)
+
+                nowtime = time.time()
+
+                # load all nodes and update ip in all nodes
+                if nowtime - update_node_time > 60:
+                    self.load_all_nodes()
+                    self.register_node()
+                    update_node_time = nowtime + 60
+
+                # sinc chain with all nodes
+                self.update_blockchain()
+
+                time.sleep(15)
+
+
 
 
         # Запускаем ноду
