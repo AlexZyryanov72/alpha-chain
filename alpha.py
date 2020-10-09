@@ -5,6 +5,7 @@ from argparse import ArgumentParser
 from miner import *
 from blockchain import Blockchain
 import signal
+from wallets import Wallets
 
 
 def start_node(pipe_node, port):
@@ -13,9 +14,9 @@ def start_node(pipe_node, port):
     node.start()
 
 
-def start_mine(pipe_miner, blockchain):
+def start_mine(pipe_miner, miner_node, miner_address):
     signal.signal(signal.SIGINT, signal.SIG_IGN)
-    miner = Miner(pipe_miner, blockchain)
+    miner = Miner(pipe_miner, miner_node, miner_address)
     miner.start()
 
 def exit_program():
@@ -35,21 +36,22 @@ def handler(signum, frame):
 if __name__ == '__main__':
     signal.signal(signal.SIGINT, handler)
 
+    wallets = Wallets()
+    if not wallets.get_addresses():
+        print("Список кошельков пуст. Создается новый кошелек")
+        wallets.add_wallet()
+
     parser = ArgumentParser()
     # parser.add_argument('command', help='commands', choices=['main', 'dev', 'scissors'], nargs='?', default="main")
     parser.add_argument('-p', '--port', default=7777, type=int, help='port to listen on')
     parser.add_argument('-m', '--miner', help='start miner', action='store_const', const=True, default=False)
     parser.add_argument('-mn', '--miner_node', default="127.0.0.1", type=str, help='link miner with node')
+    parser.add_argument('-ma', '--miner_address', default=wallets.current_address, type=str, help='address miner payment')
     parser.add_argument('-c', '--console', help='input commands in command line', action='store_const',
                         const=True, default=False)
 
     args = parser.parse_args()
     port = args.port
-
-    wallets = Wallets()
-    if not wallets.get_addresses():
-        print("Список кошельков пуст. Создается новый кошелек")
-        wallets.add_wallet()
 
     # for send data in process
     pipe_miner = Pipe()
@@ -64,7 +66,9 @@ if __name__ == '__main__':
 
     # Запускаем майнинг
     if args.miner:
-        process_miner = Process(target=start_mine, args=(pipe_miner[1], f'{args.miner_node}:{args.port}',))
+        process_miner = Process(target=start_mine, args=(pipe_miner[1],
+                                                         f'{args.miner_node}:{args.port}',
+                                                         args.miner_address))
         process_miner.start()
 
     if args.console:

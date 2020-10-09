@@ -2,37 +2,40 @@ import hashlib
 import json
 import time
 import requests
+from wallets import Wallets
+from wallets import Wallet
+from py_ecc.secp256k1 import ecdsa_raw_sign, ecdsa_raw_recover, privtopub
+from _pysha3 import keccak_256
 
 
 class Blockchain:
     def __init__(self):
         self.current_transactions = []
         self.chain = []
-        self.genesis_amount_miner = 100         # Первоначальная сумма вознаграждения майнерам
-        self.block_cut_award = 5                # Количество блоков урезания награды
-        self.block_change_difficuly = 20        # количество блоков после которых меняется сложность
-        self.block_time_mining = 10             # усрезненное время майнинга блока
+        self.genesis_amount_miner = 5           # Первоначальная сумма вознаграждения майнерам
+        self.block_cut_award = 60*60*24*365*2   # Количество блоков урезания награды
+        self.block_change_difficuly = 60        # количество блоков после которых меняется сложность
+        self.block_time_mining = 60              # middle time mining in seconds
 
 
     def difficulty(self, block):
-        count_change_difficulty = block['index'] // self.blockchain.block_change_difficuly
+        count_change_difficulty = block['index'] // self.block_change_difficuly
 
         # if 0 <= index_block < self.block_change_difficuly
         if count_change_difficulty == 0:
-            return 0.0001
+            return 0.00000001
         else:
             # find previous difficulty
-            previous_difficulty_last_block = count_change_difficulty * self.blockchain.block_change_difficuly - 1
+            previous_difficulty_last_block = count_change_difficulty * self.block_change_difficuly - 1
             previous_difficulty = self.chain[previous_difficulty_last_block]['difficulty']
 
             # search middle previos time mining for block
-            if count_change_difficulty * self.blockchain.block_change_difficuly == block['index']:
+            if count_change_difficulty * self.block_change_difficuly == block['index']:
                 time_finish = block['timestamp']
             else:
                 time_finish = self.chain[previous_difficulty_last_block + 1]['timestamp']
             time_start = self.chain[previous_difficulty_last_block - self.block_change_difficuly + 1]["timestamp"]
             block_middle_time = (time_finish - time_start) / self.block_change_difficuly
-
             # search difficulty for this block what mining was block_time_mining for block
             return previous_difficulty * self.block_time_mining / block_middle_time
 
@@ -47,8 +50,8 @@ class Blockchain:
         """
         Determine if a given blockchain is valid
 
-        :param chain: A blockchain
-        :return: True if valid, False if not
+        :param  chain: A blockchain
+        :return      : True if valid, False if not
         """
 
         last_block = chain[0]
@@ -70,18 +73,77 @@ class Blockchain:
 
         return True
 
+    def sign(self, data, address):
+        """
+            Signing a document at the wallet address with a private key
+
+        :param    data: data transaction
+               address: address wallet
+        :return       : signatura
+        """
+
+        if address == "0":
+            return ""
+
+        priv = Wallets().get_wallet(address).private_key
+        priv = int(priv, 16).to_bytes(64, 'big')
+
+        data = keccak_256(bytes(json.dumps(data), 'utf-8')).digest()
+        ans = ecdsa_raw_sign(data, priv)
+        res = '0x'
+        for j in range(3):
+            if j > 0:
+                res += '0' * (64 - len(hex(ans[j])[2:])) + hex(ans[j])[2:]
+            else:
+                res += '0' * (2 - len(hex(ans[j])[2:])) + hex(ans[j])[2:]
+        return res
+
+    def sign_to_pub(self, data, sign):
+        """
+        Recovers the owner's public key using the document and its signature
+
+        :param    data: data transaction
+        :param    sign: signatura data transaction
+        :return       : public key owner this document
+        """
+
+        sign = (int(sign[0:4], 16), int(sign[4:68], 16), int(sign[68:], 16),)
+        data = keccak_256(bytes(json.dumps(data), 'utf-8')).digest()
+        pub = ecdsa_raw_recover(data, sign)
+        pub = pub[0].to_bytes(32, 'big') + pub[1].to_bytes(32, 'big')
+        pub = int.from_bytes(pub, 'big')
+        pub = ('0' * (128 - len(hex(pub)[2:])) + hex(pub)[2:])
+        return Wallet.public_to_address(pub)
+
+
     def new_transaction(self, sender, recipient, amount):
         """
-        Creates a new transaction to go into the next mined Block
+        Creates a new transaction
 
-        :param sender: Address of the Sender
+        :param    sender: Address of the Sender
         :param recipient: Address of the Recipient
-        :param amount: Amount
-        :return: The index of the Block that will hold this transaction
+        :param    amount: Amount
+        :return:        : Transaction json format
         """
+
         transaction = {'sender': sender, 'recipient': recipient, 'amount': amount,
                        'index': len(self.current_transactions)}
-        self.current_transactions.append({'transaction' : transaction, 'hash':  self.hash(transaction)})
+        sign = self.sign(transaction, sender)
+
+        return {'transaction' : transaction,
+                'sign': self.sign(transaction, sender),
+                'hash':  self.hash(transaction)}
+
+
+    def miner_amount_payment(self, block):
+        """
+        Determining the amount of payment to the miner for the block
+
+        :param     block: Block for which the payout amount is calculated
+        :return:        : Amount payment
+        """
+        return self.genesis_amount_miner / (2**((block['index']) // self.block_cut_award))
+
 
     def new_block(self):
         """
@@ -107,25 +169,6 @@ class Blockchain:
         }
 
         block['difficulty'] = self.difficulty(block)
-        """
-        self.proof_of_work(block)
-        # Reset the current list of transactions
-        self.blockchain.current_transactions = []
-
-        self.blockchain.chain.append(block)
-        """
-        # Search amount pay miner
-        try:
-            amount_block = self.genesis_amount_miner / (2**((self.chain[-1]['index'] + 1) // self.block_cut_award))
-        except:
-            amount_block = self.genesis_amount_miner # first pay genesis
-
-        # We must receive a reward for finding the proof.
-        # The sender is "0" to signify that this node has mined a new coin.
-        self.new_transaction(
-            sender="0",
-            amount=amount_block,
-        )
         return block
 
     def valid_proof(self, block):
