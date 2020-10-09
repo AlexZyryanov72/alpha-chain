@@ -192,10 +192,7 @@ class FullNode:
                 return {'error': 'data not ready yet'}
 
         def job_node():
-            print(666666666666666666666666666666666666666666666666666666666666666666666666666666666)
             self.load_blockchain()
-            print(len(self.blockchain.chain), self.blockchain.len_chain)
-            print(6666666666666666666666666666666666777777777777777777777777777777777777777777777777)
 
             update_node_time = 0
             while True:
@@ -222,9 +219,10 @@ class FullNode:
         def worker_node():
             while True:
                 for task in self.task_queue.copy().keys():
-                    self.task_queue[task]['tread'] = Task(self, self.task_queue[task])
-                    self.task_queue[task]['tread'].start()
-
+                    if 'tread' not in self.task_queue[task].keys():
+                        self.task_queue[task]['tread'] = Task(self, self.task_queue[task])
+                        self.task_queue[task]['tread'].start()
+                time.sleep(0.1)
                     # Запускаем ноду
         job_node = Thread(target=job_node)
         job_node.start()

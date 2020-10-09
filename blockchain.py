@@ -23,7 +23,7 @@ class Blockchain:
 
         # if 0 <= index_block < self.block_change_difficuly
         if count_change_difficulty == 0:
-            return 0.00000001
+            return 0.00001
         else:
             # find previous difficulty
             previous_difficulty_last_block = count_change_difficulty * self.block_change_difficuly - 1
