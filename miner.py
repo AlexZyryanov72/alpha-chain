@@ -37,7 +37,7 @@ class Miner:
                     block = send_request_and_wait_responce(url=f'http://{self.connect_address_node}/api',
                                                            method='nodes.get_new_job')
                     break
-                except:
+                except Exception:
                     print('Not connect node mining for new job')
                 time.sleep(2)
 
@@ -61,7 +61,7 @@ class Miner:
                                                    method='nodes.set_proof_block',
                                                    data={'block': block})
                     break
-                except:
+                except Exception:
                     print('Not connect node mining for proof block')
 
 

@@ -4,48 +4,13 @@ import json
 from blockchain import Blockchain
 import time
 import sys
-from os import urandom
 import requests
 from threading import Thread
 import utils
+from worker_queue import WorkerQueue
 
 
 chain_save_dir = 'data/chain/'
-class Task(Thread):
-    def __init__(self, node, task):
-        super().__init__()
-        self.node = node
-        self.task = task
-
-    def get_len_chain(self):
-        while True:
-            if self.node.sync_node:
-                self.task['result'] = self.node.blockchain.len_chain
-                return
-            time.sleep(0.1)
-
-    def get_new_job(self):
-        while True:
-            if self.node.sync_node:
-                self.task['result'] = self.node.blockchain.new_block()
-                return
-            time.sleep(0.1)
-
-    def set_proof_block(self):
-        if self.node.sync_node:
-            self.node.set_sync_node(False)
-            self.node.blockchain.chain.append(self.task['data'])
-            self.task['result'] = []
-            self.node.save_blockchain()
-            self.node.set_sync_node(True)
-
-    def run(self):
-        if self.task['method'] == "get_len_chain":
-            self.get_len_chain()
-        elif self.task['method'] == "get_new_job":
-            self.get_new_job()
-        elif self.task['method'] == "set_proof_block":
-            self.set_proof_block()
 
 
 class FullNode:
@@ -58,7 +23,6 @@ class FullNode:
         self.nodes = set()
         self.my_ip = 0
         self.rpc_id = 0
-        self.task_queue = {}
 
     def set_sync_node(self, state):
         self.sync = state
@@ -110,6 +74,7 @@ class FullNode:
             try:
                 len_chain = utils.send_request_and_wait_responce(url=f'http://{node}/api',
                                                                method='nodes.get_len_chain')
+
                 if self.blockchain.len_chain < len_chain:
                     new_chain = utils.send_request_and_wait_responce(url=f'http://{node}/api',
                                                                      method='nodes.get_chain')
@@ -119,14 +84,25 @@ class FullNode:
             except Exception:
                 pass #Node not connect or incorrect data
 
-    def create_task(self, method, data=[]):
+    def get_len_chain(self, data):
         while True:
-            id = str(urandom(32).hex())
-            if id not in self.task_queue.keys():
-                break
-        self.task_queue[id] = {"method": method,
-                              "data": data}
-        return id
+            if self.sync_node:
+                return self.blockchain.len_chain
+            time.sleep(0.1)
+
+    def get_new_job(self, data):
+        while True:
+            if self.sync_node:
+                return self.blockchain.new_block()
+            time.sleep(0.1)
+
+    def set_proof_block(self, data):
+        if self.sync_node:
+            self.set_sync_node(False)
+            self.blockchain.chain.append(data)
+            self.save_blockchain()
+            self.set_sync_node(True)
+
 
     def start(self):
         # Instantiate the Node
@@ -166,30 +142,27 @@ class FullNode:
 
         @jsonrpc.method('nodes.get_len_chain')
         def get_len_chain() -> str:
-            return self.create_task(method='get_len_chain')
+            return self.worker_queue.append(self.get_len_chain)
 
 
         @jsonrpc.method('nodes.get_chain')
         def get_chain() -> str:
-            return self.create_task(method='get_chain')
-            #return self.blockchain.chain
+            return self.worker_queue.append(self.get_chain)
+
 
         @jsonrpc.method('nodes.get_new_job')
         def get_new_job() -> str:
-            return self.create_task(method='get_new_job')
+            return self.worker_queue.append(self.get_new_job)
 
 
         @jsonrpc.method('nodes.set_proof_block')
         def set_proof_block(block:dict) -> str:
-            return self.create_task(method='set_proof_block', data=block)
+            return self.worker_queue.append(self.set_proof_block, block)
 
 
         @jsonrpc.method('nodes.wait_task')
         def wait_task(id_task:str) -> dict:
-            if 'result' in self.task_queue[id_task].keys():
-                return {'result': self.task_queue[id_task]['result']}
-            else:
-                return {'error': 'data not ready yet'}
+            return self.worker_queue.fetch_job(id_task)
 
         def job_node():
             self.load_blockchain()
@@ -216,20 +189,15 @@ class FullNode:
 
                 time.sleep(15)
 
-        def worker_node():
-            while True:
-                for task in self.task_queue.copy().keys():
-                    if 'tread' not in self.task_queue[task].keys():
-                        self.task_queue[task]['tread'] = Task(self, self.task_queue[task])
-                        self.task_queue[task]['tread'].start()
-                time.sleep(0.1)
-                    # Запускаем ноду
+
+
+        # Запускаем ноду
         job_node = Thread(target=job_node)
         job_node.start()
 
         # run worker for tasks
-        worker_node = Thread(target=worker_node)
-        worker_node.start()
+        self.worker_queue = WorkerQueue()
+        self.worker_queue.start()
 
 
 

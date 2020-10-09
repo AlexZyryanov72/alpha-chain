@@ -57,7 +57,10 @@ def send_request_and_wait_responce(url, method, data=[]):
     while True:
         data = send_request(url=url, method="nodes.wait_task", data=[id_task])
         if 'error' in data:
-            time.sleep(0.5)
+            if data['error'] == 'data not ready':
+                time.sleep(0.5)
+            else:
+                raise Exception('data not found')
         else:
             return data['result']
 
