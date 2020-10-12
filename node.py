@@ -1,10 +1,8 @@
-from flask import Flask, jsonify, request
+from flask import Flask, request
 from flask_jsonrpc import JSONRPC
-import json
 from blockchain import Blockchain
 import time
 import sys
-import requests
 from threading import Thread
 import utils
 from worker_queue import WorkerQueue
@@ -30,7 +28,6 @@ class FullNode:
     @property
     def sync_node(self):
         return self.sync
-
 
     def load_all_nodes(self):
         if not self.nodes:
@@ -103,6 +100,8 @@ class FullNode:
             self.save_blockchain()
             self.set_sync_node(True)
 
+    def get_chain(self, data):
+        pass
 
     def start(self):
         # Instantiate the Node
@@ -122,6 +121,7 @@ class FullNode:
         def register_node(node_ip: str):
             self.nodes.add(node_ip)
 
+        """
         @jsonrpc.method('nodes.transactions_new')
         def new_transaction():
             values = request.get_json()
@@ -139,6 +139,7 @@ class FullNode:
                 index = 0
             response = {'message': f'Transaction will be added to Block {index}'}
             return jsonify(response), 201
+        """
 
         @jsonrpc.method('nodes.get_len_chain')
         def get_len_chain() -> str:
@@ -165,6 +166,7 @@ class FullNode:
             return self.worker_queue.fetch_job(id_task)
 
         def job_node():
+            # load blockchain from files
             self.load_blockchain()
 
             update_node_time = 0
@@ -178,20 +180,20 @@ class FullNode:
 
                 nowtime = time.time()
 
-                # load all nodes and update ip in all nodes
+                # load all nodes and register this node in all nodes
                 if nowtime - update_node_time > 60:
                     self.load_all_nodes()
                     self.register_node()
                     update_node_time = nowtime + 60
 
-                # sinc chain with all nodes
+                # sync chain with all nodes
                 self.update_blockchain()
 
-                time.sleep(15)
+                time.sleep(1)
 
 
 
-        # Запускаем ноду
+        # run node
         job_node = Thread(target=job_node)
         job_node.start()
 
@@ -203,25 +205,5 @@ class FullNode:
 
         app.run(host='127.0.0.1', port=self.port)
 
-    """
-    while True:
-        # Принимаем от майнера новый блок
-        if self.pipe_node_to_miner.poll():
-            block = self.pipe_node_to_miner.recv()
-            # Проверяем что новый блок валидный для текущей цепочки
-            if not self.blockchain.chain or \
-                    (block['previous_hash'] == self.blockchain.hash(self.blockchain.chain[-1]) and
-                     block['index'] == self.blockchain.chain[-1]['index'] + 1):
-                self.blockchain.chain.append(block)
-            else:
-                print("Блок не подходит. Отпраляем майнеру обновленную цепочку блоков для работы")
-
-                #while True:
-                #    index = self.blockchain.chain[-1]['index']
-                #    self.pipe_node_to_miner.send(self.blockchain.chain[index])
-                   #if self.pipe_node_to_miner.recv()
-
-        time.sleep(1)
-    """
 
 

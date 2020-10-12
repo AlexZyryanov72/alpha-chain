@@ -63,5 +63,3 @@ def send_request_and_wait_responce(url, method, data=[]):
                 raise Exception('data not found')
         else:
             return data['result']
-
-

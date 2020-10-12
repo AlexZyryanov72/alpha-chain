@@ -1,14 +1,11 @@
 import time
-import sys
-import requests
-import json
 from blockchain import Blockchain
-from utils import send_request, send_request_and_wait_responce
+from utils import send_request_and_wait_responce
+
 
 
 class Miner:
-    def __init__(self, pipe_miner, connect_address_node, address_payment):
-        self.pipe_miner = pipe_miner
+    def __init__(self, connect_address_node, address_payment, ):
         self.address_payment = address_payment
         self.connect_address_node = connect_address_node
         self.blockchain = Blockchain()
@@ -25,12 +22,6 @@ class Miner:
 
     def start(self):
         while True:
-            # read from main process command
-            if self.pipe_miner.poll():
-                command = self.pipe_miner.recv()
-                if command == 'exit':
-                    sys.exit(0)
-
             # send request for new job
             while True:
                 try:
@@ -65,6 +56,7 @@ class Miner:
                     print('Not connect node mining for proof block')
 
 
+
     def proof_of_work(self, block):
         """
         Simple Proof of Work Algorithm:
@@ -78,4 +70,8 @@ class Miner:
         while self.blockchain.valid_proof(block) is False:
             proof += 1
             block['proof'] = proof
+
+
+
+
 

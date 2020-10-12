@@ -9,12 +9,11 @@ class Wallet(object):
     Attributes:
         _private_key (string): a private key.
         _public_key (string): a public key.
-        _hash_public_key (string): a hash of public key.
         _address (string): a wallet address.
     """
 
     def __init__(self):
-        self._private_key = os.urandom(64).hex()
+        self._private_key = self.generate_private_key()
         self._public_key = self.priv_to_pub(self._private_key)
         self._address = self.public_to_address(self._public_key)
 
@@ -29,6 +28,15 @@ class Wallet(object):
         print(f'Address key: {self.address}')
         print(f'Public  key: {self.public_key}')
         print(f'Private key: {self.private_key}')
+
+    def generate_private_key(self):
+        from _pysha3 import sha3_256
+
+        data = ''
+        for i in range(100):
+            data += str(os.urandom(64).hex())
+        return sha3_256(bytes(data[:len(data) // 2], 'utf-8')).hexdigest() + \
+               sha3_256(bytes(data[len(data) // 2:], 'utf-8')).hexdigest()
 
     def public_to_address(self, public_key):
         address = keccak_256(bytes(public_key, 'utf-8')).hexdigest()[24:]
